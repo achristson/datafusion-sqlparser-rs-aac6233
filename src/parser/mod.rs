@@ -623,6 +623,7 @@ impl<'a> Parser<'a> {
                 Keyword::EXECUTE | Keyword::EXEC => self.parse_execute(),
                 Keyword::PREPARE => self.parse_prepare(),
                 Keyword::MERGE => self.parse_merge(),
+                Keyword::MATCH => self.parse_cypher_query(),
                 // `LISTEN`, `UNLISTEN` and `NOTIFY` are Postgres-specific
                 // syntaxes. They are used for Postgres statement.
                 Keyword::LISTEN if self.dialect.supports_listen_notify() => self.parse_listen(),
@@ -17676,6 +17677,44 @@ impl<'a> Parser<'a> {
             _ => self.expected("expected option value", self.peek_token()),
         }
     }
+
+    pub fn parse_cypher_query(&mut self) -> Result<Statement, ParserError> {
+        let mut pattern_parts = Vec::new();
+
+        loop {
+            let token = self.peek_token();
+
+            if matches!(&token.token, Token::Word(w)
+                if w.keyword == Keyword::WHERE || w.keyword == Keyword::RETURN)
+            {
+                break;
+            }
+
+            if token.token == Token::EOF {
+                return self.expected("RETURN clause", token);
+            }
+
+            let next = self.next_token();
+            pattern_parts.push(format!("{}", next));
+        }
+
+        let pattern = pattern_parts.join(" ");
+
+        let where_clause = if self.parse_keyword(Keyword::WHERE) {
+            Some(self.parse_expr()?)
+        } else {
+            None
+        };
+
+        self.expect_keyword(Keyword::RETURN)?;
+        let return_items = self.parse_projection()?;
+
+        Ok(Statement::CypherQuery {
+            pattern,
+            where_clause,
+            return_items,
+        })
+    }
 }
 
 fn maybe_prefixed_expr(expr: Expr, prefix: Option<Ident>) -> Expr {
@@ -17714,6 +17753,58 @@ mod tests {
     use crate::test_utils::{all_dialects, TestedDialects};
 
     use super::*;
+
+        #[test]
+    fn test_parse_cypher_match_simple() {
+        let sql = "MATCH (n:Person) RETURN n.name";
+        let dialect = GenericDialect {};
+        let result = Parser::parse_sql(&dialect, sql);
+        
+        assert!(result.is_ok(), "Parse failed: {:?}", result.err());
+        let statements = result.unwrap();
+        assert_eq!(statements.len(), 1);
+        
+        match &statements[0] {
+            Statement::CypherQuery { pattern, where_clause, return_items } => {
+                assert!(pattern.contains("Person"), "Pattern should contain 'Person': {}", pattern);
+                assert!(where_clause.is_none(), "No WHERE clause expected");
+                assert_eq!(return_items.len(), 1, "Should have 1 return item");
+            }
+            other => panic!("Expected CypherQuery, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_cypher_match_with_where() {
+        let sql = "MATCH (n:Person) WHERE n.age > 25 RETURN n.name, n.age";
+        let dialect = GenericDialect {};
+        let result = Parser::parse_sql(&dialect, sql);
+        
+        assert!(result.is_ok(), "Parse failed: {:?}", result.err());
+        let statements = result.unwrap();
+        
+        match &statements[0] {
+            Statement::CypherQuery { pattern, where_clause, return_items } => {
+                assert!(pattern.contains("Person"));
+                assert!(where_clause.is_some(), "WHERE clause expected");
+                assert_eq!(return_items.len(), 2, "Should have 2 return items");
+            }
+            other => panic!("Expected CypherQuery, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_cypher_round_trip() {
+        let sql = "MATCH ( n : Person ) RETURN n.name";
+        let dialect = GenericDialect {};
+        let statements = Parser::parse_sql(&dialect, sql).unwrap();
+        
+        // Test that we can convert back to string
+        let output = statements[0].to_string();
+        assert!(output.contains("MATCH"), "Output should contain MATCH: {}", output);
+        assert!(output.contains("RETURN"), "Output should contain RETURN: {}", output);
+    }
+
 
     #[test]
     fn test_prev_index() {

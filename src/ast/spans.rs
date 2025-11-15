@@ -350,6 +350,7 @@ impl Spanned for Statement {
             Statement::Delete(delete) => delete.span(),
             Statement::CreateView(create_view) => create_view.span(),
             Statement::CreateTable(create_table) => create_table.span(),
+            Statement::CypherQuery{ .. } => Span::empty(),
             Statement::CreateVirtualTable {
                 name,
                 if_not_exists: _,

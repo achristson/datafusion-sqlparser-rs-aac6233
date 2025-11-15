@@ -3285,6 +3285,13 @@ pub enum Statement {
     /// CREATE TABLE
     /// ```
     CreateTable(CreateTable),
+    /// ```cypher
+    /// Basic Cypher graph query
+    CypherQuery {
+        pattern: String,
+        where_clause: Option<Expr>,
+        return_items: Vec<SelectItem>,
+    },
     /// ```sql
     /// CREATE VIRTUAL TABLE .. USING <module_name> (<module_args>)`
     /// ```
@@ -4753,6 +4760,21 @@ impl fmt::Display for Statement {
             }
             Statement::CreateView(create_view) => create_view.fmt(f),
             Statement::CreateTable(create_table) => create_table.fmt(f),
+            Statement::CypherQuery {
+                pattern,
+                where_clause,
+                return_items,
+            } => {
+                write!(f, "MATCH {}", pattern)?;
+
+                if let Some(ref where_expr) = where_clause {
+                    write!(f, " WHERE {}", where_expr)?;
+                }
+
+                write!(f, " RETURN ")?;
+                write!(f, "{}", display_comma_separated(return_items))?;
+                Ok(())
+            },
             Statement::LoadData {
                 local,
                 inpath,

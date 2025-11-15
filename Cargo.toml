@@ -64,3 +64,7 @@ pretty_assertions = "1"
 [package.metadata.docs.rs]
 # Document these features on docs.rs
 features = ["serde", "visitor"]
+
+[[bin]]
+name = "convert_cypher"
+path = "cypher_to_sql/convert_cypher.rs"
