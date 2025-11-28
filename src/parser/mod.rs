@@ -580,7 +580,13 @@ impl<'a> Parser<'a> {
                     self.parse_detach_duckdb_database()
                 }
                 Keyword::MSCK => self.parse_msck(),
-                Keyword::CREATE => self.parse_create(),
+                Keyword::CREATE => {
+                    if self.peek_token().token == Token::LParen {
+                        self.parse_cypher_create()
+                    } else {
+                        self.parse_create()
+                    }
+                },
                 Keyword::CACHE => self.parse_cache_table(),
                 Keyword::DROP => self.parse_drop(),
                 Keyword::DISCARD => self.parse_discard(),
@@ -17715,6 +17721,24 @@ impl<'a> Parser<'a> {
             return_items,
         })
     }
+
+    pub fn parse_cypher_create(&mut self) -> Result<Statement, ParserError> {
+        let mut pattern_parts = Vec::new();
+
+        loop {
+            let token = self.peek_token();
+
+            if token.token == Token::EOF || token.token == Token::SemiColon {
+                break;
+            }
+
+            let next  = self.next_token();
+            pattern_parts.push(format!("{}", next));
+        }
+
+        let pattern = pattern_parts.join(" ");
+        Ok(Statement::CypherCreate { pattern })
+    }
 }
 
 fn maybe_prefixed_expr(expr: Expr, prefix: Option<Ident>) -> Expr {
@@ -17803,6 +17827,43 @@ mod tests {
         let output = statements[0].to_string();
         assert!(output.contains("MATCH"), "Output should contain MATCH: {}", output);
         assert!(output.contains("RETURN"), "Output should contain RETURN: {}", output);
+    }
+
+    #[test]
+    fn test_parse_cypher_create_with_properties() {
+        let sql = "CREATE (n:Person {name: 'Alice', age: 30})";
+        let dialect = GenericDialect {};
+        let statements = Parser::parse_sql(&dialect, sql).unwrap();
+        
+        assert_eq!(statements.len(), 1);
+        match &statements[0] {
+            Statement::CypherCreate { pattern } => {
+                // Debug: print what we actually got
+                println!("Pattern captured: '{}'", pattern);
+                assert!(pattern.contains("Person"), "Pattern should contain 'Person', got: {}", pattern);
+                assert!(pattern.contains("name"), "Pattern should contain 'name', got: {}", pattern);
+                assert!(pattern.contains("Alice"), "Pattern should contain 'Alice', got: {}", pattern);
+            }
+            _ => panic!("Expected CypherCreate statement, got: {:?}", statements[0]),
+        }
+    }
+
+    #[test]
+    fn test_parse_cypher_create_no_properties() {
+        let sql = "CREATE (n:Person)";
+        let dialect = GenericDialect {};
+        let statements = Parser::parse_sql(&dialect, sql).unwrap();
+        
+        assert_eq!(statements.len(), 1);
+        match &statements[0] {
+            Statement::CypherCreate { pattern } => {
+                // Debug: print what we actually got
+                println!("Pattern captured: '{}'", pattern);
+                assert!(pattern.contains("Person"), "Pattern should contain 'Person', got: {}", pattern);
+                assert!(!pattern.contains("{"), "Pattern should not contain '{{', got: {}", pattern);
+            }
+            _ => panic!("Expected CypherCreate statement, got: {:?}", statements[0]),
+        }
     }
 
 

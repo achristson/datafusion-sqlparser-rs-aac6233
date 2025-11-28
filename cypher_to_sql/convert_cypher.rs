@@ -39,6 +39,13 @@ fn convert_cypher_to_sql(cypher: &str) -> Result<String, String> {
             
             Ok(sql_stmt.to_string())
         }
+        Some(Statement::CypherCreate { pattern }) => {
+            // Convert CREATE to INSERT
+            let sql_stmt = cypher_to_sql::cypher_create_to_sql(pattern)
+                .map_err(|e| format!("Conversion error: {}", e))?;
+            
+            Ok(sql_stmt.to_string())
+        }
         Some(_) => Err("Not a Cypher query".to_string()),
         None => Err("No statement parsed".to_string()),
     }

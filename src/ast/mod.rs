@@ -3292,6 +3292,9 @@ pub enum Statement {
         where_clause: Option<Expr>,
         return_items: Vec<SelectItem>,
     },
+    CypherCreate {
+        pattern: String,
+    },
     /// ```sql
     /// CREATE VIRTUAL TABLE .. USING <module_name> (<module_args>)`
     /// ```
@@ -4774,6 +4777,11 @@ impl fmt::Display for Statement {
                 write!(f, " RETURN ")?;
                 write!(f, "{}", display_comma_separated(return_items))?;
                 Ok(())
+            },
+            Statement::CypherCreate {
+                pattern
+            } => {
+                write!(f, "CREATE {}", pattern)
             },
             Statement::LoadData {
                 local,

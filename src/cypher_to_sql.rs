@@ -50,6 +50,124 @@ pub fn cypher_to_sql(
     })))
 }
 
+pub fn cypher_create_to_sql(pattern: &str) -> Result<Statement, String> {
+    // Extract table name (label)
+    let table_name = extract_first_label(pattern)?;
+    
+    // Extract properties from the pattern
+    let (columns, values) = extract_properties(pattern)?;
+    
+    if columns.is_empty() {
+        return Err("No properties found in CREATE statement".to_string());
+    }
+    
+    // Build INSERT statement
+    Ok(Statement::Insert(Insert {
+        or: None,
+        ignore: false,
+        into: true,
+        table: TableObject::TableName(ObjectName(vec![ObjectNamePart::Identifier(Ident::new(table_name))])),
+        table_alias: None,
+        columns,
+        overwrite: false,
+        source: Some(Box::new(Query {
+            with: None,
+            body: Box::new(SetExpr::Values(Values {
+                explicit_row: false,
+                rows: vec![values],
+            })),
+            order_by: None,
+            limit_clause: None,
+            fetch: None,
+            locks: vec![],
+            for_clause: None,
+            settings: None,
+            format_clause: None,
+            pipe_operators: vec![],
+        })),
+        assignments: vec![],
+        partitioned: None,
+        after_columns: vec![],
+        has_table_keyword: false,
+        on: None,
+        returning: None,
+        replace_into: false,
+        priority: None,
+        insert_alias: None,
+        settings: None,
+        format_clause: None,
+    }))
+}
+
+/// Extract properties from Cypher pattern
+/// Example: "{name: 'Alice', age: 30}" → (["name", "age"], [Value('Alice'), Value(30)])
+fn extract_properties(pattern: &str) -> Result<(Vec<Ident>, Vec<Expr>), String> {
+    // Find the property map between { and }
+    let start = pattern.find('{').ok_or("No properties found (missing '{')")?;
+    let end = pattern.rfind('}').ok_or("No properties found (missing '}')")?;
+    
+    if start >= end {
+        return Err("Invalid property syntax".to_string());
+    }
+    
+    let props_str = &pattern[start + 1..end].trim();
+    
+    if props_str.is_empty() {
+        return Ok((vec![], vec![]));
+    }
+    
+    let mut columns = Vec::new();
+    let mut values = Vec::new();
+    
+    // Simple parsing: split by comma, then by colon
+    // This is simplified - a real implementation would use the tokenizer
+    for pair in props_str.split(',') {
+        let parts: Vec<&str> = pair.split(':').map(|s| s.trim()).collect();
+        if parts.len() != 2 {
+            continue;
+        }
+        
+        let key = parts[0].trim();
+        let value = parts[1].trim();
+        
+        columns.push(Ident::new(key));
+        
+        // Parse the value
+        let expr = parse_simple_value(value)?;
+        values.push(expr);
+    }
+    
+    Ok((columns, values))
+}
+
+/// Parse a simple value (string, number, boolean)
+fn parse_simple_value(value: &str) -> Result<Expr, String> {
+    let value = value.trim();
+    
+    // String literal (quoted)
+    if (value.starts_with('\'') && value.ends_with('\'')) 
+        || (value.starts_with('"') && value.ends_with('"')) {
+        let unquoted = &value[1..value.len() - 1];
+        return Ok(Expr::Value(Value::SingleQuotedString(unquoted.to_string()).into()));
+    }
+    
+    // Boolean
+    if value.eq_ignore_ascii_case("true") {
+        return Ok(Expr::Value(Value::Boolean(true).into()));
+    }
+    if value.eq_ignore_ascii_case("false") {
+        return Ok(Expr::Value(Value::Boolean(false).into()));
+    }
+    
+    // Number
+    if let Ok(num) = value.parse::<i64>() {
+        return Ok(Expr::Value(Value::Number(num.to_string(), false).into()));
+    }
+    
+    // Identifier (unquoted)
+    Ok(Expr::Identifier(Ident::new(value)))
+}
+
 fn convert_return_items(return_items: &[SelectItem]) -> Vec<SelectItem> {
     return_items.iter().map(|item| {
         match item {
@@ -193,5 +311,22 @@ mod tests {
         // Should be: SELECT * FROM Person AS n
         assert!(sql_str.contains("SELECT *") || sql_str.contains("SELECT*"));
         assert!(sql_str.contains("FROM Person"));
+    }
+    
+    #[test]
+    fn test_cypher_create_to_sql() {
+        let pattern = "(n:Person {name: 'Alice', age: 30})";
+        
+        let result = cypher_create_to_sql(pattern);
+        assert!(result.is_ok());
+        
+        let sql_stmt = result.unwrap();
+        let sql_str = sql_stmt.to_string();
+        
+        println!("Generated INSERT SQL: {}", sql_str);
+        assert!(sql_str.contains("INSERT"));
+        assert!(sql_str.contains("Person"));
+        assert!(sql_str.contains("name"));
+        assert!(sql_str.contains("Alice"));
     }
 }
