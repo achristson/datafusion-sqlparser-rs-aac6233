@@ -100,7 +100,6 @@ pub fn cypher_create_to_sql(pattern: &str) -> Result<Statement, String> {
 }
 
 /// Extract properties from Cypher pattern
-/// Example: "{name: 'Alice', age: 30}" → (["name", "age"], [Value('Alice'), Value(30)])
 fn extract_properties(pattern: &str) -> Result<(Vec<Ident>, Vec<Expr>), String> {
     // Find the property map between { and }
     let start = pattern.find('{').ok_or("No properties found (missing '{')")?;
@@ -119,8 +118,6 @@ fn extract_properties(pattern: &str) -> Result<(Vec<Ident>, Vec<Expr>), String> 
     let mut columns = Vec::new();
     let mut values = Vec::new();
     
-    // Simple parsing: split by comma, then by colon
-    // This is simplified - a real implementation would use the tokenizer
     for pair in props_str.split(',') {
         let parts: Vec<&str> = pair.split(':').map(|s| s.trim()).collect();
         if parts.len() != 2 {
@@ -144,7 +141,6 @@ fn extract_properties(pattern: &str) -> Result<(Vec<Ident>, Vec<Expr>), String> 
 fn parse_simple_value(value: &str) -> Result<Expr, String> {
     let value = value.trim();
     
-    // String literal (quoted)
     if (value.starts_with('\'') && value.ends_with('\'')) 
         || (value.starts_with('"') && value.ends_with('"')) {
         let unquoted = &value[1..value.len() - 1];
